@@ -365,9 +365,9 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none!important}
         <div class="card-title">Tamper Test — Sahte Token</div>
       </div>
       <div class="card-body">
-        <p class="hint">1. Yukarıdaki "jwt.io ↗" butonuna tıkla<br>2. Payload'da <code style="color:var(--amber)">"role":"user"</code> → <code style="color:var(--red)">"role":"admin"</code> yap<br>3. Değişmiş token'ı aşağıya yapıştır<br>4. Gönder → Sunucu imzayı reddeder</p>
+        <p class="hint">1. Yukarıdaki "jwt.io ↗" butonuna tıkla<br>2. Payload'da <code style="color:var(--amber)">"role":"user"</code> → <code style="color:var(--red)">"role":"admin"</code> yap<br>3. Değişmiş token'ı aşağıya yapıştır<br>4. Gönder → Sunucu imzayı reddeder (401)</p>
         <input id="tamper-tok" placeholder="jwt.io'dan değiştirilmiş token'ı yapıştır..."/>
-        <button class="btn-amber" onclick="doTamper()">Gönder → sunucu reddetmeli</button>
+        <button class="btn-amber" onclick="doTamper()">Gönder → GET /users</button>
         <div class="resp" id="tamper-resp"></div>
 
         <div class="divider"></div>
@@ -443,6 +443,13 @@ function show(id, data, ok) {
   const el = document.getElementById(id);
   el.textContent = JSON.stringify(data, null, 2);
   el.className = 'resp show ' + (ok ? 'ok' : 'err');
+}
+
+function showMsg(id, msg, kind) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  const k = (kind === 'ok' || kind === 'err' || kind === 'info') ? kind : 'info';
+  el.className = 'resp show ' + k;
 }
 
 function setToken(t, r) {
@@ -564,13 +571,32 @@ async function adminDelete() {
 
 async function doTamper() {
   const t = document.getElementById('tamper-tok').value.trim();
-  if (!t) { show('tamper-resp', {error: "jwt.io'dan değiştirilmiş token'ı yapıştır"}, false); return; }
+  if (!t) { showMsg('tamper-resp', "Token gerekli (jwt.io'dan değiştirilmiş token'ı yapıştır).", 'err'); return; }
   try {
-    const r = await fetch(B + '/user/1', { method: 'DELETE', headers: {'Authorization': 'Bearer ' + t} });
-    const d = await r.json();
-    show('tamper-resp', {status: r.status, ...d}, false);
-    addLog('block', `TAMPER TEST: sahte token reddedildi — ${r.status} ${d.error || ''}`);
-  } catch { show('tamper-resp', {error: 'Sunucuya ulaşılamadı'}, false); }
+    const r = await fetch(B + '/users', { headers: {'Authorization': 'Bearer ' + t} });
+    if (r.status === 200) {
+      showMsg('tamper-resp', 'Token valid | role: admin', 'ok');
+      addLog('info', 'TAMPER TEST: Token valid (admin) — 200');
+      return;
+    }
+    if (r.status === 403) {
+      showMsg('tamper-resp', 'Token valid | role: user | access denied', 'info');
+      addLog('block', 'TAMPER TEST: Token valid (user) ama admin route reddedildi — 403');
+      return;
+    }
+    if (r.status === 401) {
+      showMsg('tamper-resp', 'Token invalid | access denied', 'err');
+      addLog('block', 'TAMPER TEST: Token invalid — 401');
+      return;
+    }
+
+    let d = null;
+    try { d = await r.json(); } catch {}
+    showMsg('tamper-resp', `Beklenmeyen yanıt: ${r.status}${d?.error ? ' — ' + d.error : ''}`, 'err');
+    addLog('block', `TAMPER TEST: Beklenmeyen yanıt — ${r.status}`);
+  } catch {
+    showMsg('tamper-resp', 'Sunucuya ulaşılamadı', 'err');
+  }
 }
 
 // Health indicator removed from header (keeps UI minimal).
